@@ -29,7 +29,7 @@ class NetModule:
             (3,3,256,512),
             (3,3,512,512),
             (3,3,512,512),
-            (512, self.args.num_classes)]
+            (512, 7)]
         self.layers = {}
         self.lock = threading.Lock()
         self.initializer = tf_initializers.VarianceScaling(seed=self.args.seed)
@@ -104,9 +104,11 @@ class NetModule:
         sys.path.insert(0, base_path) 
         if os.path.exists(os.path.join(base_path, 'misc/init_sig.npy')):
             init_sig = np.load(os.path.join(base_path, 'misc/init_sig.npy'), allow_pickle=True)
+            print('init_sig', init_sig[0].shape)
             for lid, sig in enumerate(init_sig):
-                self.sigma[lid].assign(sig)
-                self.psi[lid].assign(sig*self.args.psi_factor)
+                pass
+                # self.sigma[lid].assign(sig)
+                # self.psi[lid].assign(sig*self.args.psi_factor)
         else:
             np_save(base_path, 'misc/init_sig.npy', [sig.numpy() for sig in self.sigma])
 

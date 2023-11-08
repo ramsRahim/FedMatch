@@ -104,9 +104,9 @@ class TrainModule:
                     _, loss = self.params['loss_fn'](x_batch, y_batch)
                 gradients = tape.gradient(loss, self.params['trainables']) 
                 self.optimizer.apply_gradients(zip(gradients, self.params['trainables']))    
-            vlss, vacc = self.validate()
+            # vlss, vacc = self.validate()
             tlss, tacc = self.evaluate()
-            self.adaptive_lr_decay(vlss)
+            #self.adaptive_lr_decay(vlss)
             self.logger.print(self.state['client_id'], 'rnd:{}, ep:{}, n_train:{}, n_test:{} tlss:{}, tacc:{} ({}, {}s) '
                      .format(self.state['curr_round'], self.state['curr_epoch'], self.num_train, self.num_test, \
                             round(tlss, 4), round(tacc, 4), self.task['task_name'], round(time.time()-start_time,1)))

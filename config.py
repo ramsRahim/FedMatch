@@ -9,16 +9,16 @@ def set_config(args):
     """
 
     args.gpu_mem = 7 # Gbyte (adjust this as needed)
-    args.dataset_path = '/path/to/data/'  # for datasets
-    args.output_path =   '/path/to/outputs/' # for logs, weights, etc.
+    args.dataset_path = '/home/rhossain/exp/SemiFL-Semi-Supervised-Federated-Learning-for-Unlabeled-Clients-with-Alternate-Training/src/data'  # for datasets
+    args.output_path =   '/home/rhossain/exp/FedMatch/outputs/' # for logs, weights, etc.
     
     args.archi = 'resnet9'
-    args.dataset_id_to_name = {0: 'cifar_10'}
+    args.dataset_id_to_name = {0: 'pacs'}
     
     # scenarios
     if 'lc' in args.task:
         args.scenario = 'labels-at-client'
-        args.num_labels_per_class = 5
+        args.num_labels_per_class = 7
         args.num_epochs_client = 1 
         args.batch_size_client = 10 # for labeled set
         args.num_epochs_server = 0
@@ -43,13 +43,13 @@ def set_config(args):
     if 'biid' in args.task or 'bimb'in args.task: 
         args.sync = False
         args.num_tasks = 1
-        args.num_clients = 100
+        args.num_clients = 2
         args.num_rounds = 200 
     
     # datasets
-    if 'c10' in args.task:
+    if 'pacs' in args.task:
         args.dataset_id = 0
-        args.num_classes = 10
+        args.num_classes = 7
         args.num_test = 2000
         args.num_valid = 2000
         args.batch_size_test = 100

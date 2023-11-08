@@ -84,6 +84,7 @@ class DecomposedDense(tf.keras.layers.Dense):
 
     self.psi = psi
     self.sigma = sigma
+    # print('sigma', sigma.shape)
     self.l1_thres = l1_thres
 
   

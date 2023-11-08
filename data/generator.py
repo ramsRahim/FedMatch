@@ -8,6 +8,8 @@ import tensorflow as tf
 from config import *
 from misc.utils import *
 from torchvision import datasets,transforms
+from torchvision.datasets import ImageFolder
+
 
 class DataGenerator:
 
@@ -22,7 +24,7 @@ class DataGenerator:
         """
 
         self.args = args
-        self.base_dir = os.path.join(self.args.dataset_path, self.args.task) 
+        self.base_dir = os.path.join(self.args.output_path, self.args.task) 
         self.shape = (32,32,3)
 
     def generate_data(self):
@@ -31,11 +33,11 @@ class DataGenerator:
         self.task_cnt = -1
         self.is_labels_at_server = True if 'server' in self.args.scenario else False
         self.is_imbalanced = True if 'imb' in self.args.task else False
-        x, y = self.load_dataset(self.args.dataset_id)
-        self.generate_task(x, y)
+        x = self.load_dataset(self.args.dataset_id)
+        self.generate_task(x)
         print(f'{self.args.task} done ({time.time()-start_time}s)')
 
-    def load_dataset(self, dataset_id):
+    """ def load_dataset(self, dataset_id):
         temp = {}
         if self.args.dataset_id_to_name[dataset_id] == 'cifar_10':
             temp['train'] = datasets.CIFAR10(self.args.dataset_path, train=True, download=True) 
@@ -48,166 +50,86 @@ class DataGenerator:
 
         x, y = self.shuffle(x, y)
         print(f'{self.args.dataset_id_to_name[self.args.dataset_id]} ({np.shape(x)}) loaded.')
-        return x, y
+        return x, y """
 
-    def generate_task(self, x, y):
-        x_train, y_train = self.split_train_test_valid(x, y)
-        s, u = self.split_s_and_u(x_train, y_train)
-        self.split_s(s)
-        self.split_u(u)
 
-    def split_train_test_valid(self, x, y):
-        self.num_examples = len(x)
-        self.num_train = self.num_examples - (self.args.num_test+self.args.num_valid) 
-        self.num_test = self.args.num_test
-        self.labels = np.unique(y)
-        # train set
-        x_train = x[:self.num_train]
-        y_train = y[:self.num_train]
-        # test set
-        x_test = x[self.num_train:self.num_train+self.num_test]
-        y_test = y[self.num_train:self.num_train+self.num_test]
-        y_test = tf.keras.utils.to_categorical(y_test, len(self.labels))
-        l_test = np.unique(y_test)
+    def load_dataset(self, dataset_id):
+        if self.args.dataset_id_to_name[dataset_id] == 'pacs':
+            # Define a transform to convert images to tensor and normalize
+            transform = transforms.Compose([
+                transforms.Resize(32),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # Normalizing with ImageNet stats
+            ])
+            
+            # Load the 'art_painting' domain for the server with labels
+            server_domain = 'art_painting'
+            server_dataset = ImageFolder(os.path.join(self.args.dataset_path, 'PACS', server_domain), transform=transform)
+            server_images, server_labels = zip(*[(image.numpy().transpose(1,2,0), target) for image, target in server_dataset])
+            
+            # Load the 'cartoon' and 'photo' domains for clients without labels
+            client_domains = ['cartoon', 'photo']
+            client_datasets = {domain: ImageFolder(os.path.join(self.args.dataset_path, 'PACS', domain), transform=transform) for domain in client_domains}
+            client_images = {domain: [image.numpy().transpose(1,2,0) for image, _ in client_datasets[domain]] for domain in client_domains}
+            
+            # Load the 'sketch' domain for testing with labels
+            test_domain = 'sketch'
+            test_dataset = ImageFolder(os.path.join(self.args.dataset_path, 'PACS', test_domain), transform=transform)
+            test_images, test_labels = zip(*[(image.numpy().transpose(1,2,0), target) for image, target in test_dataset])
+
+            # Return a dictionary of datasets
+            datasets = {
+                'server': {'images': server_images, 'labels': server_labels},
+                'clients': {domain: images for domain, images in client_images.items()},
+                'test': {'images': test_images, 'labels': test_labels}
+            }
+            return datasets
+
+
+    def generate_task(self, datasets):
+        self.split_train_test_valid(datasets['test'])
+        #s, u = self.split_s_and_u(x_train, y_train)
+        self.split_s(datasets['server'])
+        self.split_u(datasets['clients'])
+
+    def split_train_test_valid(self,s):
+        
+        x,y = self.shuffle(s['images'],s['labels'])
         self.save_task({
-            'x': x_test,
-            'y': y_test,
-            'labels': l_test,
+            'x': x,
+            'y': tf.keras.utils.to_categorical(y, 7),
+            'labels':np.unique(s['labels']),
             'name': f'test_{self.args.dataset_id_to_name[self.args.dataset_id]}'
         })
-        # valid set
-        x_valid = x[self.num_train+self.num_test:]
-        y_valid = y[self.num_train+self.num_test:]
-        y_valid = tf.keras.utils.to_categorical(y_valid, len(self.labels))
-        l_valid = np.unique(y_valid)
-        self.save_task({
-            'x': x_valid,
-            'y': y_valid,
-            'labels': l_valid,
-            'name': f'valid_{self.args.dataset_id_to_name[self.args.dataset_id]}'
-        })
-        return x_train, y_train
-
-    def split_s_and_u(self, x, y):
-        if self.is_labels_at_server:
-            self.num_s = self.args.num_labels_per_class
-        else:
-            self.num_s = self.args.num_labels_per_class * self.args.num_clients 
-
-        data_by_label = {}
-        for label in self.labels:
-            idx = np.where(y[:]==label)[0] 
-            data_by_label[label] = {
-                'x': x[idx],
-                'y': y[idx]
-            }
-
-        self.num_u = 0
-        s_by_label, u_by_label = {}, {}
-        for label, data in data_by_label.items():
-            s_by_label[label] = {
-                'x': data['x'][:self.num_s],
-                'y': data['y'][:self.num_s]
-            }
-            u_by_label[label] = {
-                'x': data['x'][self.num_s:],
-                'y': data['y'][self.num_s:]
-            }
-            self.num_u += len(u_by_label[label]['x'])
-
-        return s_by_label, u_by_label
         
     def split_s(self, s):
-        if self.is_labels_at_server:
-            x_labeled = []
-            y_labeled = []
-            for label, data in s.items():
-                x_labeled = [*x_labeled, *data['x']]
-                y_labeled = [*y_labeled, *data['y']]
-            x_labeled, y_labeled = self.shuffle(x_labeled, y_labeled)
-            self.save_task({
-                'x': x_labeled,
-                'y': tf.keras.utils.to_categorical(y_labeled, len(self.labels)),
-                'name': f's_{self.args.dataset_id_to_name[self.args.dataset_id]}',
-                'labels': np.unique(y_labeled)
-            })
-        else:
-            for cid in range(self.args.num_clients):
-                x_labeled = []
-                y_labeled = []
-                for label, data in s.items():
-                    start = self.args.num_labels_per_class * cid
-                    end = self.args.num_labels_per_class * (cid+1)
-                    _x = data['x'][start:end]
-                    _y = data['y'][start:end]
-                    x_labeled = [*x_labeled, *_x]
-                    y_labeled = [*y_labeled, *_y]
-                x_labeled, y_labeled = self.shuffle(x_labeled, y_labeled)
-                self.save_task({
-                    'x': x_labeled,
-                    'y': tf.keras.utils.to_categorical(y_labeled, len(self.labels)),
-                    'name': f's_{self.args.dataset_id_to_name[self.args.dataset_id]}_{cid}',
-                    'labels': np.unique(y_labeled)
-                })
+        x_labeled = []
+        y_labeled = []
+        x_labeled = [*x_labeled, *s['images']]
+        y_labeled = [*y_labeled, *s['labels']]
+        x_labeled, y_labeled = self.shuffle(x_labeled, y_labeled)
+        self.save_task({
+            'x': x_labeled,
+            'y': tf.keras.utils.to_categorical(y_labeled, 7),
+            'name': f's_{self.args.dataset_id_to_name[self.args.dataset_id]}',
+            'labels': np.unique(y_labeled)
+        })
 
     def split_u(self, u):
-        if self.is_imbalanced:
-            ten_types_of_class_imbalanced_dist = [
-                [0.50,0.15,0.03,0.03,0.03,0.02,0.03,0.03,0.03,0.15], # type 0
-                [0.15,0.50,0.15,0.03,0.03,0.03,0.02,0.03,0.03,0.03], # type 1 
-                [0.03,0.15,0.50,0.15,0.03,0.03,0.03,0.02,0.03,0.03], # type 2 
-                [0.03,0.03,0.15,0.50,0.15,0.03,0.03,0.03,0.02,0.03], # type 3 
-                [0.03,0.03,0.03,0.15,0.50,0.15,0.03,0.03,0.03,0.02], # type 4 
-                [0.02,0.03,0.03,0.03,0.15,0.50,0.15,0.03,0.03,0.03], # type 5 
-                [0.03,0.02,0.03,0.03,0.03,0.15,0.50,0.15,0.03,0.03], # type 6 
-                [0.03,0.03,0.02,0.03,0.03,0.03,0.15,0.50,0.15,0.03], # type 7 
-                [0.03,0.03,0.03,0.02,0.03,0.03,0.03,0.15,0.50,0.15], # type 8 
-                [0.15,0.03,0.03,0.03,0.02,0.03,0.03,0.03,0.15,0.50], # type 9
-            ]
-            labels = list(u.keys())
-            num_u_per_client = int(self.num_u/self.args.num_clients)
-            offset_per_label = {label:0 for label in labels}
-            for cid in range(self.args.num_clients):
                 # batch-imbalanced
-                x_unlabeled = []
-                y_unlabeled = []
-                dist_type = cid%len(labels)
-                freqs = np.random.choice(labels, num_u_per_client, p=ten_types_of_class_imbalanced_dist[dist_type])
-                frq = []
-                for label, data in u.items():
-                    num_instances = len(freqs[freqs==label])
-                    frq.append(num_instances)
-                    start = offset_per_label[label]
-                    end = offset_per_label[label]+num_instances
-                    x_unlabeled = [*x_unlabeled, *data['x'][start:end]]
-                    y_unlabeled = [*y_unlabeled, *data['y'][start:end]] 
-                    offset_per_label[label] = end
-                x_unlabeled, y_unlabeled = self.shuffle(x_unlabeled, y_unlabeled)
-                self.save_task({
-                    'x': x_unlabeled,
-                    'y': tf.keras.utils.to_categorical(y_unlabeled, len(self.labels)),
-                    'name': f'u_{self.args.dataset_id_to_name[self.args.dataset_id]}_{cid}',
-                    'labels': np.unique(y_unlabeled)
-                })    
-        else:
-            # batch-iid
-            for cid in range(self.args.num_clients):
-                x_unlabeled = []
-                y_unlabeled = []
-                for label, data in u.items():
-                    # print('>>> ', label, len(data['x']))
-                    num_unlabels_per_class = int(len(data['x'])/self.args.num_clients)
-                    start = num_unlabels_per_class * cid
-                    end = num_unlabels_per_class * (cid+1)
-                    x_unlabeled = [*x_unlabeled, *data['x'][start:end]]
-                    y_unlabeled = [*y_unlabeled, *data['y'][start:end]]  
-                x_unlabeled, y_unlabeled = self.shuffle(x_unlabeled, y_unlabeled)
-                self.save_task({
-                    'x': x_unlabeled,
-                    'y': tf.keras.utils.to_categorical(y_unlabeled, len(self.labels)),
-                    'name': f'u_{self.args.dataset_id_to_name[self.args.dataset_id]}_{cid}',
-                    'labels': np.unique(y_unlabeled)
-                })
+        x_unlabeled = []
+        y_unlabeled = []
+        i=0
+        for d in u.items():
+            x_unlabeled = [*x_unlabeled, *d[1]]
+            x_unlabeled = np.array(x_unlabeled)  
+            self.save_task({
+                'x': x_unlabeled,
+                'y':'null',
+                'name': f'u_{self.args.dataset_id_to_name[self.args.dataset_id]}_{i}',
+                'labels': 'null'
+                }) 
+            i+=1   
 
     def save_task(self, data):
         np_save(base_dir=self.base_dir, filename=f"{data['name']}.npy", data=data)

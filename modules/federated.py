@@ -75,18 +75,19 @@ class ServerModule:
     def load_data(self):
         if self.args.scenario == 'labels-at-server':
             self.x_train, self.y_train, self.task_name = self.loader.get_s_server()
+            print(self.x_train[0].shape)
         else:
             self.x_train, self.y_train, self.task_name = None, None, None
-        self.x_valid, self.y_valid =  self.loader.get_valid()
+        #self.x_valid, self.y_valid =  self.loader.get_valid()
         self.x_test, self.y_test =  self.loader.get_test()
-        self.x_test = self.loader.scale(self.x_test)
-        self.x_valid = self.loader.scale(self.x_valid) 
+        #self.x_test = self.loader.scale(self.x_test)
+        #self.x_valid = self.loader.scale(self.x_valid) 
         self.train.set_task({
             'task_name':self.task_name,
             'x_train':self.x_train, 
             'y_train':self.y_train,
-            'x_valid':self.x_valid, 
-            'y_valid':self.y_valid, 
+            #'x_valid':self.x_valid, 
+            #'y_valid':self.y_valid, 
             'x_test':self.x_test, 
             'y_test':self.y_test, 
         })
@@ -141,7 +142,9 @@ class ServerModule:
         self.train.train_global_model(self.curr_round, self.curr_round, num_epochs)
 
     def loss_fn(self, x, y):
-        x = self.loader.scale(x)
+        # x = self.loader.scale(x)
+        print(len(x))
+        x = np.array(x)
         y_pred = self.global_model(x)
         loss = self.cross_entropy(y, y_pred) * self.args.lambda_s
         return y_pred, loss

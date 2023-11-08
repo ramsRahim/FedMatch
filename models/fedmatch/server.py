@@ -115,6 +115,8 @@ class Server(ServerModule):
             self.restored_clients[rid].set_weights(rwgts)
             self.rid_to_cid[rid] = cid
             rid += 1
+            
+            print('restored clients:', self.rid_to_cid)
 
     def get_similar_models(self, cid):
         if cid in self.cid_to_vectors and (self.curr_round+1)%self.args.h_interval == 0:
